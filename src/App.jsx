@@ -8,6 +8,8 @@ import ActeReclamation from './components/ActeReclamation'
 import Recap from './components/Recap'
 import RecapCharts from './components/RecapCharts'
 import Spinner from './components/Spinner'
+import Modal from './components/Modal'
+import TicketList from './components/TicketList'
 
 export default function App(){
   const [view, setView] = useState('stats')
@@ -18,6 +20,7 @@ export default function App(){
   const [showActe, setShowActe] = useState(true)
   const [showRecl, setShowRecl] = useState(true)
   const [topN, setTopN] = useState(3)
+  const [modal, setModal] = useState({ open:false, title:'', tickets: [] })
 
   const filteredDataset = dataset.filter(d => {
     if(!d.date) return false
@@ -26,7 +29,44 @@ export default function App(){
     return true
   })
 
+  function openModalWithTickets(title, tickets, initialFilters){
+    const fmt = (d)=>{
+      if(!d) return ''
+      const [y,m,day] = d.split('-')
+      return `${day}/${m}/${y}`
+    }
+    const period = (fromDate || toDate) ? `Période: ${fromDate?fmt(fromDate):'—'} → ${toDate?fmt(toDate):'—'}` : 'Période: toutes dates'
+    setModal({ open: true, title, tickets, initialFilters, titleExtra: period })
+  }
+
+  function handleOpenTickets(){
+    const tickets = filteredDataset.filter(d=> !d.date_cloture)
+    openModalWithTickets(`Tickets ouverts (${tickets.length})`, tickets, {status:'open'})
+  }
+  function handleClosedTickets(){
+    const tickets = filteredDataset.filter(d=> d.date_cloture)
+    openModalWithTickets(`Tickets clôturés (${tickets.length})`, tickets, {status:'closed'})
+  }
+  function handleInSlaTickets(){
+    const tickets = filteredDataset.filter(d=> d.sla_in === true || (d._orig && ((d._orig['Dans le délai']===true) || String(d._orig['Dans le délai']||'').toLowerCase().includes('oui'))))
+    openModalWithTickets(`Dans le délai (IN) (${tickets.length})`, tickets, {status:'all', slaState:'in'})
+  }
+  function handleOutSlaTickets(){
+    const tickets = filteredDataset.filter(d=> d.sla_out === true || (d.sla_in === false))
+    openModalWithTickets(`Retard (OUT) (${tickets.length})`, tickets, {status:'all', slaState:'out'})
+  }
+  function handleAgentClick(agent){
+    const normAgent = (agent||'').toString().trim()
+    const tickets = filteredDataset.filter(d=>{
+      const raw = (d.traiteur||'').toString().trim()
+      if(normAgent.toLowerCase() === 'non assignée') return raw === ''
+      return raw === normAgent
+    })
+    openModalWithTickets(`Tickets de l'agent ${agent} (${tickets.length})`, tickets, {agent: normAgent})
+  }
+
   return (
+    <>
     <div className="min-h-screen p-6">
       <header className="mb-6">
         <div className="flex justify-between items-center">
@@ -47,9 +87,14 @@ export default function App(){
 
       {view === 'stats' && (
         <main>
-          <KPIs dataset={filteredDataset} />
+          <KPIs dataset={filteredDataset}
+            onOpenClick={handleOpenTickets}
+            onClosedClick={handleClosedTickets}
+            onInSlaClick={handleInSlaTickets}
+            onOutSlaClick={handleOutSlaTickets}
+          />
           {loading && <div className="p-2"><Spinner className="text-slate-600" size={1.2} /> <span className="ml-2 text-sm text-slate-600">Chargement du fichier...</span></div>}
-          <AgentsPanel dataset={filteredDataset} />
+          <AgentsPanel dataset={filteredDataset} onAgentClick={handleAgentClick} />
           <Cohort dataset={filteredDataset} fromDate={fromDate} toDate={toDate} />
           <ActeReclamation dataset={filteredDataset} showActe={showActe} setShowActe={setShowActe} showRecl={showRecl} setShowRecl={setShowRecl} topN={topN} setTopN={setTopN} />
           <Recap dataset={filteredDataset} showActe={showActe} showRecl={showRecl} />
@@ -84,5 +129,9 @@ export default function App(){
         </main>
       )}
     </div>
+    <Modal open={modal.open} title={modal.title} onClose={()=> setModal(m=>({...m, open:false}))}>
+      <TicketList tickets={modal.tickets} initialFilters={modal.initialFilters} titleExtra={modal.titleExtra} />
+    </Modal>
+    </>
   )
 }

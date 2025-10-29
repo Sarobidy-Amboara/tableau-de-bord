@@ -34,6 +34,48 @@ function parseDateToISO(v){
   return null
 }
 
+// Parse potential date+time to ISO 'YYYY-MM-DDTHH:mm:ss'.
+function parseDateTimeToISO(v){
+  if(v == null || v === '') return null
+  const pad = (n)=> String(n).padStart(2,'0')
+  // Excel serial date (days since 1899-12-30). Supports fractional part for time.
+  if(typeof v === 'number'){
+    const ms = Math.round((v - 25569) * 86400 * 1000)
+    const d = new Date(ms)
+    if(!isNaN(d)){
+      const y = d.getFullYear(); const m = pad(d.getMonth()+1); const day = pad(d.getDate())
+      const hh = pad(d.getHours()); const mi = pad(d.getMinutes()); const ss = pad(d.getSeconds())
+      return `${y}-${m}-${day} ${hh}:${mi}:${ss}`
+    }
+  }
+  if(typeof v === 'string'){
+    const s = v.trim()
+    // Already ISO-like; normalize 'T' to space and trim seconds
+    const mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/)
+    if(mIso){
+      const [,Y,M,D,HH,MM,SS='00'] = mIso
+      return `${Y}-${M}-${D} ${HH}:${MM}:${SS}`
+    }
+    // dd/mm/yyyy[ hh:mm[:ss]] or dd-mm-yyyy[ hh:mm[:ss]]
+    const m = s.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/)
+    if(m){
+      const dd = parseInt(m[1],10), mm = parseInt(m[2],10), yy = parseInt(m[3],10)
+      const hh = parseInt(m[4]||'0',10), mi = parseInt(m[5]||'0',10), ss = parseInt(m[6]||'0',10)
+      const y = yy < 100 ? 2000 + yy : yy
+      return `${y}-${pad(mm)}-${pad(dd)} ${pad(hh)}:${pad(mi)}:${pad(ss)}`
+    }
+    // Fallback: try native parser as local time (avoid UTC conversion)
+    const n = new Date(s.replace('T',' '))
+    if(!isNaN(n)){
+      const y = n.getFullYear(); const m = pad(n.getMonth()+1); const day = pad(n.getDate())
+      const hh = pad(n.getHours()); const mi = pad(n.getMinutes()); const ss = pad(n.getSeconds())
+      return `${y}-${m}-${day} ${hh}:${mi}:${ss}`
+    }
+  }
+  const dOnly = parseDateToISO(v)
+  return dOnly ? `${dOnly} 00:00:00` : null
+}
+
 function parseHMSToMinutes(hms){
   if(hms == null) return null
   const s = hms.toString().trim()
@@ -135,7 +177,9 @@ export default function FileImporter({onData, setLoading}){
           _orig: r,
           reference: r[refKey] || r['reference'] || r['Reference'] || r['REF'] || r['ref'] || r['Ticket'] || r['ticket'] || r['ticket_id'] || r['id'] || r['numero'] || r['num'] || '',
           date: parseDateToISO(r[dateKey] ?? r['Date de création'] ?? r['datecreation']),
+          date_creation_dt: parseDateTimeToISO(r[dateKey] ?? r['Date de création'] ?? r['datecreation']),
           date_cloture: parseDateToISO(r[dateClotKey] ?? r['Date de clôture'] ?? r['datecloture']),
+          date_cloture_dt: parseDateTimeToISO(r[dateClotKey] ?? r['Date de clôture'] ?? r['datecloture']),
           traiteur: (r[traiteurKey] || r['Nom traiteur'] || r['traiteur'] || '').toString(),
           duration: parseFloat(r[durKey]) || null,
           duration_minutes: durMin,

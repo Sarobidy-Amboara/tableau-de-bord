@@ -22,7 +22,7 @@ async function ensureDataLabelsRegistered(){
   }catch(e){ /* not available, continue without labels */ }
 }
 
-export default function AgentsPanel({dataset=[]}){
+export default function AgentsPanel({dataset=[], onAgentClick}){
   function formatMinutesToHMS(mins){
     if(mins == null || mins === '-' || isNaN(mins)) return '-'
     const totalSec = Math.round(Number(mins) * 60)
@@ -36,12 +36,21 @@ export default function AgentsPanel({dataset=[]}){
     // aggregate per agent: total, closed, avg duration, slaIn/slaOut (counts over closed tickets)
     const agg = {}
     dataset.forEach(d => {
-      const a = (d.traiteur && d.traiteur.trim()) ? d.traiteur.toString() : 'Inconnu'
-      if(!agg[a]) agg[a] = { total:0, closed:0, durations: [], slaIn:0, slaOut:0 }
+      const raw = (d.traiteur || '').toString().trim()
+      const a = raw ? raw : 'Non assignée'
+      if(!agg[a]) agg[a] = { total:0, closed:0, durations: [], retards: [], slaIn:0, slaOut:0 }
       agg[a].total += 1
       // prefer duration_minutes (parsed HH:MM:SS) else fallback to numeric duration
       if(d.duration_minutes != null) agg[a].durations.push(d.duration_minutes)
       else if(d.duration) agg[a].durations.push(d.duration)
+
+      // compute and collect positive delay minutes for average delay
+      const rmin = (d.retard_minutes != null)
+        ? Number(d.retard_minutes)
+        : (d.duration_minutes != null && d.sla_minutes != null && Number(d.duration_minutes) > Number(d.sla_minutes))
+          ? (Number(d.duration_minutes) - Number(d.sla_minutes))
+          : null
+      if(rmin != null && rmin > 0) agg[a].retards.push(rmin)
 
       // detect closed and update closed count and SLA counts only for closed tickets
       const isClosed = d.date_cloture && d.date_cloture.toString().trim() !== ''
@@ -169,23 +178,30 @@ export default function AgentsPanel({dataset=[]}){
             <thead className="bg-slate-50">
               <tr>
                 <th className="p-2">Agent</th>
-                <th className="p-2">Tickets (clôturés / total)</th>
+                <th className="p-2">Total</th>
+                <th className="p-2">Ouverts</th>
+                <th className="p-2">Clôturés</th>
                 <th className="p-2">Durée moyenne</th>
-           <th className="p-2">% SLA OUT</th>
-           <th className="p-2">% SLA IN</th>
+                <th className="p-2">Retard moyen</th>
+                <th className="p-2">% SLA OUT</th>
+                <th className="p-2">% SLA IN</th>
               </tr>
             </thead>
             <tbody>
               {pageItems.map(a => {
                 const item = agg[a]
                 const avg = item.durations.length ? (item.durations.reduce((s,x)=>s+x,0)/item.durations.length) : null
+                const avgDelay = item.retards.length ? (item.retards.reduce((s,x)=>s+x,0)/item.retards.length) : null
                 const pctIn = item.total ? Math.round((item.in / item.total) * 100) : 0
                 const pctOut = item.total ? Math.round((item.out / item.total) * 100) : 0
                 return (
-                  <tr key={a} className="border-t">
-                    <td className="p-2">{a}</td>
-                    <td className="p-2">{item.closed}</td>
+                  <tr key={a} className="border-t hover:bg-slate-50 cursor-pointer" onClick={()=> onAgentClick && onAgentClick(a)}>
+                    <td className="p-2 font-medium text-slate-800">{a}</td>
+                    <td className="p-2">{item.total}</td>
+                    <td className="p-2">{(item.total - item.closed)} { item.total ? `(${Math.round(((item.total - item.closed)/item.total)*100)}%)` : ''}</td>
+                    <td className="p-2">{item.closed} { item.total ? `(${Math.round((item.closed/item.total)*100)}%)` : ''}</td>
                     <td className="p-2">{avg != null ? formatMinutesToHMS(avg) : '-'}</td>
+                    <td className="p-2">{avgDelay != null ? formatMinutesToHMS(avgDelay) : '-'}</td>
                     {
                       (()=>{
                         const pctIn = item.closed ? Math.round((item.slaIn / item.closed) * 100) : 0
